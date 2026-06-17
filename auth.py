@@ -1,3 +1,6 @@
+
+
+
 """
 auth.py — Production-level authentication router for AcneGuard.
 
@@ -23,6 +26,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 from database import get_users_collection
 from email_service import send_otp_email
+
+
 
 load_dotenv()
 
