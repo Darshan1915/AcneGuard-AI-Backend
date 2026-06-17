@@ -1,5 +1,5 @@
 """
-diet.py — Diet-based acne risk prediction router
+diet.py — Diet-based acne risk prediction API (PRODUCTION + DEBUG FIXED)
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -15,35 +15,71 @@ from engine import AcneGuardEngine
 router = APIRouter(prefix="/diet", tags=["Diet Analysis"])
 
 # ─────────────────────────────────────────────
-# ✅ FIXED PATH RESOLUTION (WORKS LOCAL + RENDER)
+# ✅ FIXED PATH (IMPORTANT)
 # ─────────────────────────────────────────────
+# diet.py is at: backend/diet.py
+
 BASE_DIR = Path(__file__).resolve().parent
+ML_DIR = BASE_DIR / "skin_health_backend" / "ml"
 
-MODEL_PATH = BASE_DIR / "skin_health_backend" / "ml" / "model.joblib"
-ENCODERS_PATH = BASE_DIR / "skin_health_backend" / "ml" / "encoders.joblib"
+MODEL_PATH = ML_DIR / "model.joblib"
+ENCODERS_PATH = ML_DIR / "encoders.joblib"
 
+print("\n[DietML] ================= PATH DEBUG =================")
+print("[DietML] BASE_DIR =", BASE_DIR)
+print("[DietML] ML_DIR =", ML_DIR)
 print("[DietML] MODEL_PATH =", MODEL_PATH)
-print("[DietML] EXISTS =", MODEL_PATH.exists())
+print("[DietML] ENCODERS_PATH =", ENCODERS_PATH)
+print("[DietML] MODEL EXISTS =", MODEL_PATH.exists())
+print("[DietML] ENCODERS EXISTS =", ENCODERS_PATH.exists())
+print("[DietML] =================================================\n")
 
+# ─────────────────────────────────────────────
+# MODEL HOLDERS
+# ─────────────────────────────────────────────
 _model = None
 _preprocessor = None
 _target_enc = None
 
+# ─────────────────────────────────────────────
+# SAFE MODEL LOADING + DEBUG
+# ─────────────────────────────────────────────
 try:
-    _model = joblib.load(MODEL_PATH)
-    artifacts = joblib.load(ENCODERS_PATH)
+    if MODEL_PATH.exists() and ENCODERS_PATH.exists():
 
-    _preprocessor = artifacts["preprocessor"]
-    _target_enc = artifacts["target_encoder"]
+        _model = joblib.load(MODEL_PATH)
+        artifacts = joblib.load(ENCODERS_PATH)
 
-    print("[DietML] Model loaded successfully")
+        # 🔥 DEBUG: inspect encoders file
+        print("\n[DietML] ========== ARTIFACT DEBUG ==========")
+        print("[DietML] ARTIFACT TYPE =", type(artifacts))
+
+        try:
+            print("[DietML] ARTIFACT KEYS =", artifacts.keys())
+        except Exception:
+            print("[DietML] ARTIFACT HAS NO KEYS (NOT A DICT)")
+
+        print("[DietML] FULL ARTIFACT =", artifacts)
+        print("[DietML] ======================================\n")
+
+        # extract objects
+        _preprocessor = artifacts.get("preprocessor")
+        _target_enc = artifacts.get("target_encoder")
+
+        print("[DietML] PREPROCESSOR =", _preprocessor)
+        print("[DietML] TARGET_ENCODER =", _target_enc)
+
+        print("\n[DietML] ✅ Model loaded successfully\n")
+
+    else:
+        print("\n[DietML ERROR] ❌ Model or encoders missing\n")
 
 except Exception as e:
-    print(f"[DietML ERROR] Failed to load model: {e}")
+    print("\n[DietML ERROR]", str(e), "\n")
 
 
 # ─────────────────────────────────────────────
-# Schemas
+# REQUEST SCHEMA
 # ─────────────────────────────────────────────
 class DietPredictRequest(BaseModel):
     diet_type: str
@@ -68,9 +104,9 @@ class DietPredictResponse(BaseModel):
 
 
 # ─────────────────────────────────────────────
-# Helpers
+# FOOD MAP
 # ─────────────────────────────────────────────
-FOOD_CAT_MAP = {
+FOOD_MAP = {
     "Red Meat": "High_Inflammation",
     "Processed Meat": "High_Inflammation",
     "Starchy/Potato": "High_Glycemic",
@@ -82,28 +118,34 @@ FOOD_CAT_MAP = {
     "Chicken": "Balanced",
 }
 
-def derive_category(food: str) -> str:
-    return FOOD_CAT_MAP.get(food, "Balanced")
+
+def get_category(food: str):
+    return FOOD_MAP.get(food, "Balanced")
 
 
 # ─────────────────────────────────────────────
-# Endpoint
+# API ENDPOINT
 # ─────────────────────────────────────────────
 @router.post("/predict", response_model=DietPredictResponse)
-async def predict_diet_risk(
+async def predict_diet(
     body: DietPredictRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user)
 ):
 
-    # ✅ IMPORTANT: return 503 only when truly missing
-    if _model is None:
+    # ❌ HARD STOP IF MODEL NOT READY
+    if _model is None or _preprocessor is None or _target_enc is None:
+        print("\n[DietML ERROR] ❌ Runtime model objects missing")
+        print("[DietML] _model =", _model)
+        print("[DietML] _preprocessor =", _preprocessor)
+        print("[DietML] _target_enc =", _target_enc)
+
         raise HTTPException(
             status_code=503,
-            detail="Diet model not loaded on server. Check model path or deploy model files."
+            detail="Model not loaded. Check encoders.joblib structure or model path."
         )
 
     try:
-        food_cat = derive_category(body.specific_food_item)
+        food_cat = get_category(body.specific_food_item)
 
         row = body.dict()
         row["food_category"] = food_cat
@@ -118,20 +160,30 @@ async def predict_diet_risk(
         probs = _model.predict_proba(X)[0]
         confidence = float(max(probs))
 
-        engine = AcneGuardEngine()
-        explanation = await engine.generate_diet_explanation(body.dict(), risk)
+        # ── SAFE ENGINE CALL ──
+        try:
+            engine = AcneGuardEngine()
+            explanation = await engine.generate_diet_explanation(body.dict(), risk)
+            causes = explanation.main_causes
+            recs = explanation.recommendations
 
-        return {
-            "risk_level": risk,
-            "confidence_score": round(confidence, 4),
-            "main_causes": explanation.main_causes,
-            "recommendations": explanation.recommendations,
-        }
+        except Exception as e:
+            print("[DietML ENGINE ERROR]", e)
+            causes = ["Diet-based ML prediction"]
+            recs = ["Maintain balanced diet, hydration, and sleep"]
+
+        return DietPredictResponse(
+            risk_level=risk,
+            confidence_score=round(confidence, 4),
+            main_causes=causes,
+            recommendations=recs,
+        )
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        print("[DietML API ERROR]", e)
+        raise HTTPException(status_code=500, detail=str(e))# 
+# 
+# 
 
 
 
@@ -142,6 +194,319 @@ async def predict_diet_risk(
 
 
 
+
+
+
+
+
+# """
+# # diet.py — Diet-based acne risk prediction API (PRODUCTION FIXED)
+# # """
+
+# from fastapi import APIRouter, HTTPException, Depends
+# from pydantic import BaseModel, Field
+# from typing import List
+# from pathlib import Path
+# import pandas as pd
+# import joblib
+
+# from auth import get_current_user
+# from engine import AcneGuardEngine
+
+# router = APIRouter(prefix="/diet", tags=["Diet Analysis"])
+
+# # ─────────────────────────────────────────────
+# # ✅ FIXED PATH (IMPORTANT CORRECTION)
+# # ─────────────────────────────────────────────
+
+# # diet.py is located at:
+# # backend/diet.py
+
+# BASE_DIR = Path(__file__).resolve().parent
+
+# ML_DIR = BASE_DIR / "skin_health_backend" / "ml"
+
+# MODEL_PATH = ML_DIR / "model.joblib"
+# ENCODERS_PATH = ML_DIR / "encoders.joblib"
+
+# print("[DietML] BASE_DIR =", BASE_DIR)
+# print("[DietML] MODEL_PATH =", MODEL_PATH)
+# print("[DietML] EXISTS =", MODEL_PATH.exists())
+
+# # ─────────────────────────────────────────────
+# # MODEL HOLDERS
+# # ─────────────────────────────────────────────
+# _model = None
+# _preprocessor = None
+# _target_enc = None
+
+# # ─────────────────────────────────────────────
+# # SAFE MODEL LOADING
+# # ─────────────────────────────────────────────
+# try:
+#     if MODEL_PATH.exists() and ENCODERS_PATH.exists():
+
+#         _model = joblib.load(MODEL_PATH)
+#         artifacts = joblib.load(ENCODERS_PATH)
+
+#         _preprocessor = artifacts.get("preprocessor")
+#         _target_enc = artifacts.get("target_encoder")
+
+#         print("[DietML] ✅ Model loaded successfully")
+
+#     else:
+#         print("[DietML ERROR] ❌ Model or encoders missing")
+
+# except Exception as e:
+#     print("[DietML ERROR]", e)
+
+
+# # ─────────────────────────────────────────────
+# # REQUEST SCHEMA
+# # ─────────────────────────────────────────────
+# class DietPredictRequest(BaseModel):
+#     diet_type: str
+#     specific_food_item: str
+#     sugar_intake: str
+#     dairy_intake: str
+#     processed_food_freq: str
+#     spicy_food_freq: str
+#     oily_food_level: str
+#     water_intake_liters: float
+#     sleep_hours: int
+#     stress_level: int = Field(..., ge=1, le=5)
+#     exercise: str
+#     skin_type: str
+
+
+# class DietPredictResponse(BaseModel):
+#     risk_level: str
+#     confidence_score: float
+#     main_causes: List[str]
+#     recommendations: List[str]
+
+
+# # ─────────────────────────────────────────────
+# # FOOD MAP
+# # ─────────────────────────────────────────────
+# FOOD_MAP = {
+#     "Red Meat": "High_Inflammation",
+#     "Processed Meat": "High_Inflammation",
+#     "Starchy/Potato": "High_Glycemic",
+#     "Leafy Greens": "Antioxidant_Rich",
+#     "Fish": "Omega3_Rich",
+#     "Nuts/Seeds": "Omega3_Rich",
+#     "Paneer/Dairy Rich": "Hormonal_Trigger",
+#     "Eggs": "Hormonal_Trigger",
+#     "Chicken": "Balanced",
+# }
+
+
+# def get_category(food: str):
+#     return FOOD_MAP.get(food, "Balanced")
+
+
+# # ─────────────────────────────────────────────
+# # API ENDPOINT
+# # ─────────────────────────────────────────────
+# @router.post("/predict", response_model=DietPredictResponse)
+# async def predict_diet(
+#     body: DietPredictRequest,
+#     current_user: dict = Depends(get_current_user)
+# ):
+
+#     # ❌ HARD STOP ONLY IF MODEL MISSING
+#     if _model is None or _preprocessor is None or _target_enc is None:
+#         raise HTTPException(
+#             status_code=503,
+#             detail="Model not loaded. Please ensure model.joblib and encoders.joblib exist in backend/skin_health_backend/ml"
+#         )
+
+#     try:
+#         food_cat = get_category(body.specific_food_item)
+
+#         row = body.dict()
+#         row["food_category"] = food_cat
+
+#         df = pd.DataFrame([row])
+
+#         X = _preprocessor.transform(df)
+
+#         pred_idx = _model.predict(X)[0]
+#         risk = _target_enc.inverse_transform([pred_idx])[0]
+
+#         probs = _model.predict_proba(X)[0]
+#         confidence = float(max(probs))
+
+#         # ── SAFE ENGINE CALL (NO CRASH) ──
+#         try:
+#             engine = AcneGuardEngine()
+#             explanation = await engine.generate_diet_explanation(body.dict(), risk)
+#             causes = explanation.main_causes
+#             recs = explanation.recommendations
+#         except Exception:
+#             causes = ["Diet-based ML prediction"]
+#             recs = ["Maintain balanced diet, hydration, and sleep"]
+
+#         return DietPredictResponse(
+#             risk_level=risk,
+#             confidence_score=round(confidence, 4),
+#             main_causes=causes,
+#             recommendations=recs,
+#         )
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+# """
+# diet.py — Diet-based acne risk prediction router (FIXED)
+# """
+
+# from fastapi import APIRouter, HTTPException, Depends
+# from pydantic import BaseModel, Field
+# from typing import List
+# from pathlib import Path
+# import pandas as pd
+# import joblib
+
+# from auth import get_current_user
+# from engine import AcneGuardEngine
+
+# router = APIRouter(prefix="/diet", tags=["Diet Analysis"])
+
+# # ─────────────────────────────────────────────
+# # ✅ FIXED PATH (ONLY ONE SOURCE OF TRUTH)
+# # ─────────────────────────────────────────────
+# BASE_DIR = Path(__file__).resolve().parent
+
+# ML_DIR = BASE_DIR / "skin_health_backend" / "ml"
+
+# MODEL_PATH = ML_DIR / "model.joblib"
+# ENCODERS_PATH = ML_DIR / "encoders.joblib"
+
+# print("[DietML] MODEL_PATH =", MODEL_PATH)
+# print("[DietML] MODEL_EXISTS =", MODEL_PATH.exists())
+# print("[DietML] ENCODERS_EXISTS =", ENCODERS_PATH.exists())
+
+# _model = None
+# _preprocessor = None
+# _target_enc = None
+
+# try:
+#     if MODEL_PATH.exists() and ENCODERS_PATH.exists():
+
+#         _model = joblib.load(MODEL_PATH)
+#         artifacts = joblib.load(ENCODERS_PATH)
+
+#         _preprocessor = artifacts["preprocessor"]
+#         _target_enc = artifacts["target_encoder"]
+
+#         print("[DietML] ✅ Model loaded successfully")
+
+#     else:
+#         print("[DietML ERROR] ❌ Model files missing in ML folder")
+
+# except Exception as e:
+#     print("[DietML ERROR]", e)
+#     _model = None
+
+
+# # ─────────────────────────────────────────────
+# # Schemas
+# # ─────────────────────────────────────────────
+# class DietPredictRequest(BaseModel):
+#     diet_type: str
+#     specific_food_item: str
+#     sugar_intake: str
+#     dairy_intake: str
+#     processed_food_freq: str
+#     spicy_food_freq: str
+#     oily_food_level: str
+#     water_intake_liters: float
+#     sleep_hours: int
+#     stress_level: int = Field(..., ge=1, le=5)
+#     exercise: str
+#     skin_type: str
+
+
+# class DietPredictResponse(BaseModel):
+#     risk_level: str
+#     confidence_score: float
+#     main_causes: List[str]
+#     recommendations: List[str]
+
+
+# # ─────────────────────────────────────────────
+# # Food Mapping
+# # ─────────────────────────────────────────────
+# FOOD_CAT_MAP = {
+#     "Red Meat": "High_Inflammation",
+#     "Processed Meat": "High_Inflammation",
+#     "Starchy/Potato": "High_Glycemic",
+#     "Leafy Greens": "Antioxidant_Rich",
+#     "Fish": "Omega3_Rich",
+#     "Nuts/Seeds": "Omega3_Rich",
+#     "Paneer/Dairy Rich": "Hormonal_Trigger",
+#     "Eggs": "Hormonal_Trigger",
+#     "Chicken": "Balanced",
+# }
+
+# def derive_category(food: str) -> str:
+#     return FOOD_CAT_MAP.get(food, "Balanced")
+
+
+# # ─────────────────────────────────────────────
+# # API ENDPOINT
+# # ─────────────────────────────────────────────
+# @router.post("/predict", response_model=DietPredictResponse)
+# async def predict_diet_risk(
+#     body: DietPredictRequest,
+#     current_user: dict = Depends(get_current_user),
+# ):
+
+#     # ❗ STOP 503 at root cause level
+#     if _model is None or _preprocessor is None:
+#         raise HTTPException(
+#             status_code=503,
+#             detail="Diet model not loaded. Ensure model.joblib + encoders.joblib are deployed."
+#         )
+
+#     try:
+#         food_cat = derive_category(body.specific_food_item)
+
+#         row = body.dict()
+#         row["food_category"] = food_cat
+
+#         df = pd.DataFrame([row])
+
+#         X = _preprocessor.transform(df)
+
+#         pred_idx = _model.predict(X)[0]
+#         risk = _target_enc.inverse_transform([pred_idx])[0]
+
+#         probs = _model.predict_proba(X)[0]
+#         confidence = float(max(probs))
+
+#         engine = AcneGuardEngine()
+#         explanation = await engine.generate_diet_explanation(body.dict(), risk)
+
+#         return {
+#             "risk_level": risk,
+#             "confidence_score": round(confidence, 4),
+#             "main_causes": explanation.main_causes,
+#             "recommendations": explanation.recommendations,
+#         }
+
+#     except Exception as e:
+#         import traceback
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 
