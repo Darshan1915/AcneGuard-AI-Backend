@@ -45,7 +45,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://acne-guard-frontend-p8x5.vercel.app",
+        "https://acne-guard-ai-frontend-ussq.vercel.app",
         "http://localhost:5173",
         "http://localhost:3000",
     ],
