@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: acneguard-backend
+    env: python
+    buildCommand: apt-get install -y libgl1-mesa-glx libgles2-mesa libgles2 libegl1 && pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --timeout 300 -b 0.0.0.0:$PORT -k uvicorn.workers.UvicornWorker --preload api:app
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: APP_ENV
+        value: production
+      - key: MONGODB_URI
+        fromConfig: mongodb_uri
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        fromConfig: gemini_api_key
+      - key: SMTP_USER
+        fromConfig: smtp_user
+      - key: SMTP_PASSWORD
+        fromConfig: smtp_password

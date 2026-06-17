@@ -1,0 +1,15 @@
+=== AcneGuard Training Progress ===
+Device: cpu
+Dataset: ./data
+Epochs: 40
+Batch Size: 32
+Log File: C:\Users\Dell\.gemini\antigravity\scratch\acne_guard_ai\backend\training_logs.txt
+Model will be saved to: C:\Users\Dell\.gemini\antigravity\scratch\acne_guard_ai\backend\acne_model.pth
+Classes found: ['clear', 'mild', 'moderate', 'severe']
+Data Distribution: {'clear': 464, 'mild': 603, 'moderate': 170, 'severe': 91}
+Calculated Class Weights: [0.7155172228813171, 0.5505804419517517, 1.9529411792755127, 3.6483516693115234]
+Saved classes.json -> C:\Users\Dell\.gemini\antigravity\scratch\acne_guard_ai\backend\classes.json
+Loading EfficientNet-B0 with ImageNet pretrained weights...
+Initializing Loss with Class Weights for better accuracy on minor categories...
+Epoch [01/40] Train Loss: 0.9171 Train Acc: 53.8% Val Acc: 72.4%
+  --> Updated Best Model (Val Acc: 72.4%)

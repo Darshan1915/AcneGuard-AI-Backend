@@ -1,0 +1,23 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+pillow
+numpy
+pydantic[email]
+fastapi
+uvicorn
+python-multipart
+mediapipe
+opencv-python-headless
+motor
+bcrypt
+python-jose[cryptography]
+python-dotenv
+email-validator
+joblib
+pandas
+scikit-learn
+google-genai
+gunicorn
+aiosmtplib
+

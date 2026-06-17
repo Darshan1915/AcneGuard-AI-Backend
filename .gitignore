@@ -1,0 +1,54 @@
+ data/
+ dataset/
+ __pycache__/
+ .env
+ temp_uploads/
+ skin_health_backend/ml/dataset/
+
+ # =====================
+# Python
+# =====================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# =====================
+# Environment Variables
+# =====================
+.env
+
+# =====================
+# IDE / Editor
+# =====================
+.vscode/
+.idea/
+*.swp
+
+# =====================
+# Logs
+# =====================
+*.log
+
+# =====================
+# OS Files
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# ML / AI Large Files
+# =====================
+*.h5
+*.pkl
+*.pt
+*.joblib
+
+# Dataset folders (VERY IMPORTANT for your case)
+data/
+datasets/
